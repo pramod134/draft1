@@ -1,54 +1,57 @@
 import os
+import base64
 import asyncio
 from telethon import TelegramClient, events
-from openai import OpenAI
-from dotenv import load_dotenv
-from telegram import Bot
+import openai
+import telegram
 
-load_dotenv()
-
-# --- Telegram API credentials (user account) ---
+# === Load environment variables ===
 api_id = int(os.getenv("TELEGRAM_API_ID"))
 api_hash = os.getenv("TELEGRAM_API_HASH")
-channel_username = os.getenv("CHANNEL_USERNAME")  # e.g., -100xxxxxxxxxx
+channel_username = os.getenv("CHANNEL_USERNAME")
+session_b64 = os.getenv("SESSION_B64")
+openai.api_key = os.getenv("OPENAI_API_KEY")
+bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+chat_id = int(os.getenv("CHAT_ID"))  # ✅ Final destination for the GPT response
 
-# --- OpenAI setup ---
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# === Decode and save Telethon session ===
+with open("session.session", "wb") as f:
+    f.write(base64.b64decode(session_b64))
 
-# --- Telegram bot credentials (to send GPT summary back to you) ---
-telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")  # Your personal Telegram user ID
-bot = Bot(token=telegram_bot_token)
+# === Telegram Clients ===
+client = TelegramClient("session.session", api_id, api_hash)
+bot = telegram.Bot(token=bot_token)
 
-# --- Telethon client (logs in as your real user) ---
-client = TelegramClient("session", api_id, api_hash)
+# === GPT Function ===
+async def ask_gpt(message):
+    response = await openai.ChatCompletion.acreate(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant summarizing financial trade alerts."},
+            {"role": "user", "content": message}
+        ]
+    )
+    return response.choices[0].message.content
 
+# === Message Handler ===
 @client.on(events.NewMessage(chats=channel_username))
-async def handle_message(event):
-    text = event.raw_text
-    print(f"\n📩 New message:\n{text}")
+async def handler(event):
+    text = event.message.message
+    print(f"📩 Incoming message:\n{text}")
 
     try:
-        # Send to GPT-4o
-        chat_response = openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You're a trade alert assistant. Summarize clearly and concisely. Add emojis and structure if helpful."},
-                {"role": "user", "content": text}
-            ]
-        )
-        gpt_reply = chat_response.choices[0].message.content
-        print(f"\n🤖 GPT Summary:\n{gpt_reply}")
+        reply = await ask_gpt(text)
+        print(f"🤖 GPT reply:\n{reply}")
 
-        # Optional: Send back to your Telegram via bot
-        bot.send_message(chat_id=telegram_chat_id, text=gpt_reply)
+        await bot.send_message(chat_id=chat_id, text=reply)
 
     except Exception as e:
-        print(f"⚠️ Error: {e}")
+        print(f"❌ Error processing message: {e}")
 
+# === Main Runner ===
 async def main():
     await client.start()
-    print("✅ Bot is running... Listening for new messages...")
+    print("🚀 Telethon client started and listening for messages...")
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
