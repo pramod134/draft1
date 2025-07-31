@@ -12,6 +12,8 @@ part1 = os.getenv("SESSION_B64_P1", "")
 part2 = os.getenv("SESSION_B64_P2", "")
 session_b64 = part1 + part2
 
+print(session_b64)
+
 with open("telethon.session", "wb") as f:
     f.write(base64.b64decode(session_b64))
 
